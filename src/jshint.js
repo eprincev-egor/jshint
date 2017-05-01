@@ -854,7 +854,7 @@ var JSHINT = (function() {
     var left, isArray = false, isObject = false, isLetExpr = false;
 
     state.nameStack.push();
-
+    
     // if current expression is a let expression
     if (!initial && state.tokens.next.value === "let" && peek(0).value === "(") {
       if (!state.inMoz()) {
@@ -2364,7 +2364,7 @@ var JSHINT = (function() {
     return this;
   });
   state.syntax["new"].exps = true;
-
+  
   prefix("void").exps = true;
 
   infix(".", function(left, that) {
@@ -3001,7 +3001,7 @@ var JSHINT = (function() {
    *                                           the body of member functions.
    */
   function doFunction(options) {
-    var f, token, name, statement, classExprBinding, isGenerator, isArrow, ignoreLoopFunc;
+    var f, token, name, statement, classExprBinding, isGenerator, isArrow, ignoreLoopFunc, isAsync;
     var oldOption = state.option;
     var oldIgnored = state.ignored;
 
@@ -3012,6 +3012,7 @@ var JSHINT = (function() {
       isGenerator = options.type === "generator";
       isArrow = options.type === "arrow";
       ignoreLoopFunc = options.ignoreLoopFunc;
+      isAsync = options.isAsync;
     }
 
     state.option = Object.create(state.option);
@@ -3021,7 +3022,8 @@ var JSHINT = (function() {
       "(statement)": statement,
       "(context)":   state.funct,
       "(arrow)":     isArrow,
-      "(generator)": isGenerator
+      "(generator)": isGenerator,
+      "(async)": isAsync
     });
 
     f = state.funct;
@@ -3762,6 +3764,7 @@ var JSHINT = (function() {
   function classbody(c) {
     var name;
     var isStatic;
+    var isAsync;
     var isGenerator;
     var getset;
     var props = Object.create(null);
@@ -3771,6 +3774,7 @@ var JSHINT = (function() {
       name = state.tokens.next;
       isStatic = false;
       isGenerator = false;
+      isAsync = false;
       getset = null;
 
       // The ES6 grammar for ClassElement includes the `;` token, but it is
@@ -3781,7 +3785,14 @@ var JSHINT = (function() {
         advance(";");
         continue;
       }
-
+      
+      if ( name.id === "async" ) {
+        if (!state.inES7(true)) {
+          warning("W119", state.tokens.curr, "async", "7");
+        }
+        isAsync = true;
+        advance();
+      } else
       if (name.id === "*") {
         isGenerator = true;
         advance("*");
@@ -3864,52 +3875,61 @@ var JSHINT = (function() {
       doFunction({
         statement: c,
         type: isGenerator ? "generator" : null,
+        isAsync: isAsync,
         classExprBinding: c.namedExpr ? c.name : null
       });
     }
 
     checkProperties(props);
   }
-
-  blockstmt("function", function(context) {
-    var inexport = context && context.inexport;
-    var generator = false;
-    if (state.tokens.next.value === "*") {
-      advance("*");
-      if (state.inES6(true)) {
-        generator = true;
-      } else {
-        warning("W119", state.tokens.curr, "function*", "6");
+  
+  var blockstmtFunction = function(context) {
+      var inexport = context && context.inexport;
+      var isAsync = context && context.isAsync;
+      var generator = false;
+      if (state.tokens.next.value === "*") {
+        advance("*");
+        if (state.inES6(true)) {
+          generator = true;
+        } else {
+          warning("W119", state.tokens.curr, "function*", "6");
+        }
       }
-    }
-    if (inblock) {
-      warning("W082", state.tokens.curr);
-    }
-    var i = optionalidentifier();
-
-    state.funct["(scope)"].addlabel(i, {
-      type: "function",
-      token: state.tokens.curr });
-
-    if (i === undefined) {
-      warning("W025");
-    } else if (inexport) {
-      state.funct["(scope)"].setExported(i, state.tokens.prev);
-    }
-
-    doFunction({
-      name: i,
-      statement: this,
-      type: generator ? "generator" : null,
-      ignoreLoopFunc: inblock // a declaration may already have warned
-    });
-    if (state.tokens.next.id === "(" && state.tokens.next.line === state.tokens.curr.line) {
-      error("E039");
-    }
+      if (inblock) {
+        warning("W082", state.tokens.curr);
+      }
+      var i = optionalidentifier();
+  
+      state.funct["(scope)"].addlabel(i, {
+        type: "function",
+        token: state.tokens.curr });
+  
+      if (i === undefined) {
+        warning("W025");
+      } else if (inexport) {
+        state.funct["(scope)"].setExported(i, state.tokens.prev);
+      }
+  
+      doFunction({
+        name: i,
+        statement: this,
+        type: generator ? "generator" : null,
+        isAsync: isAsync,
+        ignoreLoopFunc: inblock // a declaration may already have warned
+      });
+      if (state.tokens.next.id === "(" && state.tokens.next.line === state.tokens.curr.line) {
+        error("E039");
+      }
+      return this;
+  };
+  
+  blockstmt("function", function(context) {
+    blockstmtFunction.call(this, context);
     return this;
   });
 
-  prefix("function", function() {
+  var prefixFunction = function(options) {
+    var isAsync = options && options.isAsync;
     var generator = false;
 
     if (state.tokens.next.value === "*") {
@@ -3921,10 +3941,56 @@ var JSHINT = (function() {
     }
 
     var i = optionalidentifier();
-    doFunction({ name: i, type: generator ? "generator" : null });
+    doFunction({ 
+      name: i, 
+      type: generator ? "generator" : null,
+      isAsync: isAsync
+    });
+  };
+  
+  prefix("function", function() {
+    prefixFunction();
     return this;
   });
+  
+  prefix("async", function() {
+    if (!state.inES7(true)) {
+      warning("W119", this, "async", "7");
+    }
+      
+    advance("function");
+    prefixFunction({  isAsync: true  });
+    return this;
+  });
+  
+  blockstmt("async", function(context) {
+    if (!state.inES7(true)) {
+      warning("W119", this, "async", "7");
+    }
 
+    advance("function");
+    if ( !context ) {
+        context = {};
+    }
+    context.isAsync = true;
+    
+    blockstmtFunction.call(this, context);
+    return this;
+  });
+  
+  prefix("await", function() {
+    if (!state.inES7(true)) {
+      warning("W119", this, "await", "7");
+    }
+    
+    if ( !state.funct["(async)"] ) {
+      warning("W141", state.tokens.curr);
+    }
+    
+    advance();
+    return this;
+  });
+  
   blockstmt("if", function() {
     var t = state.tokens.next;
     increaseComplexityCount();
@@ -4787,11 +4853,11 @@ var JSHINT = (function() {
 
     return this;
   }).exps = true;
-
+  
   // Future Reserved Words
 
   FutureReservedWord("abstract");
-  FutureReservedWord("await", { es5: true, moduleOnly: true });
+  //FutureReservedWord("await", { es5: true, moduleOnly: true });
   FutureReservedWord("boolean");
   FutureReservedWord("byte");
   FutureReservedWord("char");

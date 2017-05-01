@@ -224,7 +224,8 @@ var warnings = {
   W137: "Empty destructuring.",
   W138: "Regular parameters should not come after default parameters.",
   W139: "Function expressions should not be used as the second operand to instanceof.",
-  W140: "Missing comma."
+  W140: "Missing comma.",
+  W141: "await must be in async function"
 };
 
 var info = {
