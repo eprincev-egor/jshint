@@ -82,7 +82,9 @@ var state = {
    */
   inES6: function(strict) {
     if (strict) {
-      return this.esVersion === 6;
+      if ( !this.esVersion || this.esVersion <= 6 ) {
+        this.esVersion = 6;
+      }
     }
     return this.option.moz || this.esVersion >= 6;
   },
