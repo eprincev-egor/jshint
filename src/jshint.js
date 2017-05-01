@@ -3792,7 +3792,9 @@ var JSHINT = (function() {
         }
         isAsync = true;
         advance();
-      } else
+        name = state.tokens.next;
+      }
+      
       if (name.id === "*") {
         isGenerator = true;
         advance("*");
